@@ -14,7 +14,6 @@ import (
 func catFile(args []string) {
 	fs := flag.NewFlagSet("cat-file", flag.ExitOnError)
 	pretty := fs.Bool("p", false, "pretty-print object contents")
-
 	fs.Parse(args)
 
 	// checks the number of arguments that are not flags after all flag values have been parsed
@@ -68,5 +67,4 @@ func catFile(args []string) {
 
 	content := string(contentBytes)
 	fmt.Fprint(os.Stdout, content)
-	os.Exit(0)
 }

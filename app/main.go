@@ -16,9 +16,12 @@ func main() {
 	case "init":
 		gInit()
 	case "cat-file":
-	catFile(os.Args[2:])
+		catFile(os.Args[2:])
+	case "hash-object":
+		hashObject(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
 	}
+	os.Exit(0)
 }
