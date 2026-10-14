@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/zlib"
 	"crypto/sha1"
 	"encoding/hex"
 	"flag"
@@ -30,14 +32,16 @@ func hashObject(args []string) {
 	}
 	size := strconv.Itoa(len(contentBytes))
 
+	writeBytes := []byte{}
+	writeBytes = append(writeBytes, []byte(*objectType)...)
+	writeBytes = append(writeBytes, []byte(size)...)
+	writeBytes = append(writeBytes, 0)
+	writeBytes = append(writeBytes, contentBytes...)
+
 	// creates a new hasher that can take in bytes and when it has all the required bytes
 	// call .Sum to get the hashed output
 	h := sha1.New()
-	h.Write([]byte(*objectType))
-	h.Write([]byte(size))
-	h.Write([]byte{0})
-	h.Write(contentBytes)
-
+	h.Write(writeBytes)
 	hashedBytes := h.Sum(nil)
 	hash := hex.EncodeToString(hashedBytes)
 
@@ -53,8 +57,21 @@ func hashObject(args []string) {
 			os.Exit(1)
 		}
 
+		// compressing writeBytes before it is written to file
+		var buf bytes.Buffer
+		zipWriter := zlib.NewWriter(&buf)
+		if _, err := zipWriter.Write(writeBytes); err != nil {
+			fmt.Fprintf(os.Stderr, "error compressing content %s\n", err.Error())
+			os.Exit(1)
+		}
+		// calling Close flushes the rest of the bytes. buf isn't complete until Close() returns
+		if err := zipWriter.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error compressing content %s\n", err.Error())
+			os.Exit(1)
+		}
+
 		targetPath := filepath.Join(GIT_OBJECTS_DIRECTORY, directory, filename)
-		if err := os.WriteFile(targetPath, hashedBytes, 0644); err != nil {
+		if err := os.WriteFile(targetPath, buf.Bytes(), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "error writing object to file, err: %s\n", err.Error())
 			os.Exit(1)
 		}
