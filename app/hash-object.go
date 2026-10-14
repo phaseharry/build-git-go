@@ -34,6 +34,7 @@ func hashObject(args []string) {
 
 	writeBytes := []byte{}
 	writeBytes = append(writeBytes, []byte(*objectType)...)
+	writeBytes = append(writeBytes, ' ')
 	writeBytes = append(writeBytes, []byte(size)...)
 	writeBytes = append(writeBytes, 0)
 	writeBytes = append(writeBytes, contentBytes...)
