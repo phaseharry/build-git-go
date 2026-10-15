@@ -19,6 +19,8 @@ func main() {
 		catFile(os.Args[2:])
 	case "hash-object":
 		hashObject(os.Args[2:])
+	case "list-tree":
+		lsTree(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)

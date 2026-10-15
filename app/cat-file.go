@@ -2,13 +2,9 @@ package main
 
 import (
 	"bytes"
-	"compress/zlib"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 )
 
 func catFile(args []string) {
@@ -28,31 +24,8 @@ func catFile(args []string) {
 	}
 
 	hash := fs.Arg(0)
-	// fmt.Fprintf(os.Stdout, "pretty=%v hash=%s\n", *pretty, hash)
-	subDirectory, filename := hash[:2], hash[2:]
-	path := filepath.Join(GIT_OBJECTS_DIRECTORY, subDirectory, filename)
-
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(os.Stderr, "file not found")
-		os.Exit(1)
-	} else if err != nil {
-		fmt.Fprint(os.Stderr, "issue with opening object file\n")
-		os.Exit(1)
-	}
-	defer file.Close()
-
-	// using the zlib read to decompress the object's content
-	zlibReader, err := zlib.NewReader(file)
+	data, err := getObject(hash)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error decompressing object: %s\n", err)
-		os.Exit(1)
-	}
-	defer zlibReader.Close()
-
-	data, err := io.ReadAll(zlibReader)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading in content: %s\n", err)
 		os.Exit(1)
 	}
 
