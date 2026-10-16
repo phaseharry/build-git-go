@@ -2,15 +2,16 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"flag"
 	"fmt"
 	"os"
 )
 
-const REGULAR_FILE_MODE = 100644
-const EXECUTABLE_FILE_MODE = 100755
-const SYMBOLIC_LINK_MODE = 120000
-const DIRECTORY_MODE = 40000
+const REGULAR_FILE_MODE = "100644"
+const EXECUTABLE_FILE_MODE = "100755"
+const SYMBOLIC_LINK_MODE = "120000"
+const DIRECTORY_MODE = "40000"
 
 func lsTree(args []string) {
 	fs := flag.NewFlagSet("cat-file", flag.ExitOnError)
@@ -19,6 +20,7 @@ func lsTree(args []string) {
 
 	if fs.NArg() != 1 {
 		fmt.Fprintf(os.Stderr, "usage: mygit ls-tree <object>\n")
+		os.Exit(1)
 	}
 
 	hash := fs.Arg(0)
@@ -39,14 +41,51 @@ func lsTree(args []string) {
 	}
 
 	output := []byte{}
+	remaining := contentBytes
+	// every iteration parses out each content entry
+	for len(remaining) > 0 {
+		// <mode> ends at the first space
+		mode, afterMode, found := bytes.Cut(remaining, []byte{' '})
+		if !found {
+			fmt.Fprintf(os.Stderr, "invalid tree entry: no null byte after name\n")
+			os.Exit(1)
+		}
 
-	// without --name-only flag
-	// 040000 tree <tree_sha_1>    dir1
-	// 040000 tree <tree_sha_2>    dir2
-	// 100644 blob <blob_sha_1>    file1
+		// <name> ends at the null byte
+		name, afterName, found := bytes.Cut(afterMode, []byte{0})
+		if !found {
+			fmt.Fprintf(os.Stderr, "invalid tree entry: no null byte after name\n")
+			os.Exit(1)
+		}
 
-	// with --name-only flag
-	// dir1
-	// dir2
-	// file1
+		// <20_byte_sha> has no terminator.
+		// it's always exactly 20 raw bytes and the next object entry starts right after it
+		if len(afterName) < sha1.Size {
+			fmt.Fprintf(os.Stderr, "invalid tree entry: sha is shorter than %d bytes\n", sha1.Size)
+			os.Exit(1)
+		}
+
+		// getting sha bytes and update remaining byte slice to strip it of the current entry we've parsed
+		sha := afterName[:sha1.Size]
+		remaining = afterName[sha1.Size:]
+
+		// if name-only flag is set then only print that and skip the rest
+		if *nameOnly {
+			output = fmt.Appendf(output, "%s\n", name)
+			continue
+		}
+
+		// only directories are trees. regular files, executables, and symlinks are all blobs
+		objectType := "blob"
+		if string(mode) == DIRECTORY_MODE {
+			objectType = "tree"
+		}
+
+		// full entry output
+		// 040000 tree <tree_sha_1>    dir1
+		// 100644 blob <blob_sha_1>    file1
+		// %06d pads "40000" to "040000" like git does, %x turns the raw sha bytes into hex
+		output = fmt.Appendf(output, "%06d %s %x\t%s\n", mode, objectType, sha, name)
+	}
+	fmt.Fprint(os.Stdout, string(output))
 }

@@ -12,15 +12,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	switch command := os.Args[1]; command {
+	command := os.Args[1]
+	var args []string
+	if len(os.Args) > 2 {
+		args = os.Args[2:]
+	}
+
+	switch command {
 	case "init":
 		gInit()
 	case "cat-file":
-		catFile(os.Args[2:])
+		catFile(args)
 	case "hash-object":
-		hashObject(os.Args[2:])
-	case "list-tree":
-		lsTree(os.Args[2:])
+		hashObject(args)
+	case "ls-tree":
+		lsTree(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
