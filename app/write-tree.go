@@ -13,7 +13,6 @@ func writeTree(_ []string) {
 		fmt.Fprintf(os.Stderr, "error getting working directory: %s\n", err.Error())
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stdout, "workingDir: %s\n", workingDir)
 	treeHash := recursivelyWriteTree(workingDir)
 	fmt.Fprintf(os.Stdout, "%s\n", treeHash)
 }
@@ -41,7 +40,6 @@ func recursivelyWriteTree(directory string) string {
 		path := filepath.Join(directory, e.Name())
 		mode := REGULAR_FILE_MODE
 		// checking to ensure we do not include .git files and subdirectories within the hashed results
-		fmt.Printf("filename: %s, dir: %v\n", e.Name(), e.IsDir())
 		if e.IsDir() && e.Name() != ".git" {
 			mode = DIRECTORY_MODE
 			hash := recursivelyWriteTree(path)
@@ -54,7 +52,6 @@ func recursivelyWriteTree(directory string) string {
 		} else if e.IsDir() && e.Name() == ".git" {
 			continue
 		}
-
 
 		var contentBytes []byte
 		// comparing e.Type() with a AND bitwise operator to see if the symlink flag is set
