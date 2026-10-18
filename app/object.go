@@ -48,9 +48,11 @@ func getObject(hash string) ([]byte, error) {
 	return data, err
 }
 
-func writeObject(hash string, data []byte) error {
-	directory := hash[:2]
-	filename := hash[2:]
+func writeObject(hash []byte, data []byte) error {
+	// object paths use the hex form of the hash: .git/objects/<first 2 chars>/<remaining 38 chars>
+	hexHash := hex.EncodeToString(hash)
+	directory := hexHash[:2]
+	filename := hexHash[2:]
 
 	// make directory if it doesn't already exist
 	directoryPath := filepath.Join(GIT_OBJECTS_DIRECTORY, directory)
@@ -83,8 +85,9 @@ func writeObject(hash string, data []byte) error {
 /*
  * takes incoming content bytes and convert it to the expected object format before it is compressed and stored.
  * also generates the sha1 hash for this object
+ * returns (object bytes, raw 20-byte hash). use %x or hex.EncodeToString when the hash needs to be text
  */
-func encodeObject(objectType string, content []byte) ([]byte, string) {
+func encodeObject(objectType string, content []byte) ([]byte, []byte) {
 	size := strconv.Itoa(len(content))
 
 	// blob 11\0hello world
@@ -100,7 +103,6 @@ func encodeObject(objectType string, content []byte) ([]byte, string) {
 	h := sha1.New()
 	h.Write(data)
 	hashedBytes := h.Sum(nil)
-	hash := hex.EncodeToString(hashedBytes)
 
-	return data, hash
+	return data, hashedBytes
 }

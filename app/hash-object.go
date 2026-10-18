@@ -35,5 +35,5 @@ func hashObject(args []string) {
 			os.Exit(1)
 		}
 	}
-	fmt.Fprintf(os.Stdout, "%s\n", hash)
+	fmt.Fprintf(os.Stdout, "%x\n", hash)
 }

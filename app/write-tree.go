@@ -14,14 +14,14 @@ func writeTree(_ []string) {
 		os.Exit(1)
 	}
 	treeHash := recursivelyWriteTree(workingDir)
-	fmt.Fprintf(os.Stdout, "%s\n", treeHash)
+	fmt.Fprintf(os.Stdout, "%x\n", treeHash)
 }
 
-func recursivelyWriteTree(directory string) string {
+func recursivelyWriteTree(directory string) []byte {
 	type TreeEntry struct {
 		Mode string
 		Name string
-		Hash string
+		Hash []byte
 	}
 
 	// a sample leaf node where there is no subdirectory within it. ie only contains files
@@ -101,7 +101,8 @@ func recursivelyWriteTree(directory string) string {
 		treeBytes = append(treeBytes, ' ')
 		treeBytes = append(treeBytes, []byte(e.Name)...)
 		treeBytes = append(treeBytes, 0)
-		treeBytes = append(treeBytes, []byte(e.Hash)...)
+		// tree entries store the raw 20-byte hash, not the 40-char hex string
+		treeBytes = append(treeBytes, e.Hash...)
 	}
 	data, treeHash := encodeObject(TREE, treeBytes)
 	if err := writeObject(treeHash, data); err != nil {

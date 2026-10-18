@@ -79,8 +79,8 @@ func lsTree(args []string) {
 		// full entry output
 		// 040000 tree <tree_sha_1>    dir1
 		// 100644 blob <blob_sha_1>    file1
-		// %06d pads "40000" to "040000" like git does, %x turns the raw sha bytes into hex
-		output = fmt.Appendf(output, "%06d %s %x\t%s\n", mode, objectType, sha, name)
+		// %06s prints the mode bytes as text and zero-pads "40000" to "040000" like git does, %x turns the raw sha bytes into hex
+		output = fmt.Appendf(output, "%06s %s %x\t%s\n", mode, objectType, sha, name)
 	}
 	fmt.Fprint(os.Stdout, string(output))
 }
