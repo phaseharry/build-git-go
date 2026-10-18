@@ -1,13 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"compress/zlib"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 )
+
+const BLOB = "blob"
+const TREE = "tree"
+
+const REGULAR_FILE_MODE = "100644"
+const EXECUTABLE_FILE_MODE = "100755"
+const SYMBOLIC_LINK_MODE = "120000"
+const DIRECTORY_MODE = "40000"
 
 // takes a file path and opens the open to get its raw bytes and then decompress it
 func getObject(hash string) ([]byte, error) {
@@ -34,4 +46,61 @@ func getObject(hash string) ([]byte, error) {
 
 	data, err := io.ReadAll(zlibReader)
 	return data, err
+}
+
+func writeObject(hash string, data []byte) error {
+	directory := hash[:2]
+	filename := hash[2:]
+
+	// make directory if it doesn't already exist
+	directoryPath := filepath.Join(GIT_OBJECTS_DIRECTORY, directory)
+	if err := os.MkdirAll(directoryPath, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "error creating object directory: %s, err: %s\n", directoryPath, err.Error())
+		return err
+	}
+
+	// compressing writeBytes before it is written to file
+	var buf bytes.Buffer
+	zipWriter := zlib.NewWriter(&buf)
+	if _, err := zipWriter.Write(data); err != nil {
+		fmt.Fprintf(os.Stderr, "error compressing content %s\n", err.Error())
+		return err
+	}
+	// calling Close flushes the rest of the bytes. buf isn't complete until Close() returns
+	if err := zipWriter.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "error compressing content %s\n", err.Error())
+		return err
+	}
+
+	targetPath := filepath.Join(GIT_OBJECTS_DIRECTORY, directory, filename)
+	if err := os.WriteFile(targetPath, buf.Bytes(), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing object to file, err: %s\n", err.Error())
+		return err
+	}
+	return nil
+}
+
+/*
+ * takes incoming content bytes and convert it to the expected object format before it is compressed and stored.
+ * also generates the sha1 hash for this object
+ */
+func encodeObject(objectType string, content []byte) ([]byte, string) {
+	size := strconv.Itoa(len(content))
+
+	// blob 11\0hello world
+	data := []byte{}
+	data = append(data, []byte(objectType)...)
+	data = append(data, ' ')
+	data = append(data, []byte(size)...)
+	data = append(data, 0) // appending null byte
+	data = append(data, content...)
+
+	// creates a new hasher that can take in bytes and when it has all the required bytes
+	// call .Sum to get the hashed output
+	h := sha1.New()
+	h.Write(data)
+	hashedBytes := h.Sum(nil)
+	hash := hex.EncodeToString(hashedBytes)
+
+	return data, hash
 }

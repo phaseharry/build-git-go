@@ -8,13 +8,8 @@ import (
 	"os"
 )
 
-const REGULAR_FILE_MODE = "100644"
-const EXECUTABLE_FILE_MODE = "100755"
-const SYMBOLIC_LINK_MODE = "120000"
-const DIRECTORY_MODE = "40000"
-
 func lsTree(args []string) {
-	fs := flag.NewFlagSet("cat-file", flag.ExitOnError)
+	fs := flag.NewFlagSet("ls-tree", flag.ExitOnError)
 	nameOnly := fs.Bool("name-only", false, "print name-only of the objects within the tree")
 	fs.Parse(args)
 
