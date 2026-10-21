@@ -44,15 +44,19 @@ func commitTree(args []string) {
 	if *message != "" {
 		content = append(content, '\n')
 		content = append(content, []byte(*message)...)
+		content = append(content, '\n')
 	}
 
 	// need to attach all content bytes first so we can get the size of it
 	data := make([]byte, 0)
 	data = append(data, fmt.Appendf(nil, "commit %d\x00", len(content))...)
+	data = append(data, content...)
 	// can't reuse existing encodeObject function because it the header line contains an extra hash
 	h := sha1.New()
 	h.Write(data)
 	commitHash := h.Sum(nil)
-	writeObject(commitHash, data)
+	if err := writeObject(commitHash, data); err != nil {
+		os.Exit(1)
+	}
 	fmt.Fprintf(os.Stdout, "%x\n", commitHash)
 }
