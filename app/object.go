@@ -15,6 +15,7 @@ import (
 
 const BLOB = "blob"
 const TREE = "tree"
+const COMMIT = "commit"
 
 const REGULAR_FILE_MODE = "100644"
 const EXECUTABLE_FILE_MODE = "100755"
