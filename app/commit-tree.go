@@ -27,27 +27,32 @@ func commitTree(args []string) {
 	// committer John Doe <john@example.com> 1234567890 +0000
 	//
 	// Initial commit
-	data := make([]byte, 0)
-	data = append(data, fmt.Appendf(nil, "commit %d\x00tree %s\n", 4, treeHash)...)
-	if *parent == "" {
-		data = append(data, fmt.Appendf(nil, "parent %s\n", *parent)...)
+	content := make([]byte, 0)
+	content = append(content, fmt.Appendf(nil, "tree %s\n", treeHash)...)
+	if *parent != "" {
+		content = append(content, fmt.Appendf(nil, "parent %s\n", *parent)...)
 	}
 	// hardcoding author, committer, and timestamp
 	name, email := "John Doe", "john@example.com"
 	secondsSinceEpoch, timezoneOffset := "1234567890", "+0000"
 
-	data = append(data,
+	content = append(content,
 		fmt.Appendf(nil, "author %s <%s> %s %s\n", name, email, secondsSinceEpoch, timezoneOffset)...)
+	content = append(content,
+		fmt.Appendf(nil, "committer %s <%s> %s %s\n", name, email, secondsSinceEpoch, timezoneOffset)...)
 
 	if *message != "" {
-		data = append(data, '\n')
-		data = append(data, []byte(*message)...)
+		content = append(content, '\n')
+		content = append(content, []byte(*message)...)
 	}
 
+	// need to attach all content bytes first so we can get the size of it
+	data := make([]byte, 0)
+	data = append(data, fmt.Appendf(nil, "commit %d\x00", len(content))...)
 	// can't reuse existing encodeObject function because it the header line contains an extra hash
 	h := sha1.New()
 	h.Write(data)
-	hashedBytes := h.Sum(nil)
-
-	fmt.Fprint(os.Stdout, string(hashedBytes))
+	commitHash := h.Sum(nil)
+	writeObject(commitHash, data)
+	fmt.Fprintf(os.Stdout, "%x\n", commitHash)
 }
