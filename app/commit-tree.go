@@ -47,4 +47,7 @@ func commitTree(args []string) {
 	// can't reuse existing encodeObject function because it the header line contains an extra hash
 	h := sha1.New()
 	h.Write(data)
+	hashedBytes := h.Sum(nil)
+
+	fmt.Fprint(os.Stdout, string(hashedBytes))
 }
