@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha1"
 	"flag"
 	"fmt"
 	"os"
@@ -47,14 +46,7 @@ func commitTree(args []string) {
 		content = append(content, '\n')
 	}
 
-	// need to attach all content bytes first so we can get the size of it
-	data := make([]byte, 0)
-	data = append(data, fmt.Appendf(nil, "commit %d\x00", len(content))...)
-	data = append(data, content...)
-	// can't reuse existing encodeObject function because it the header line contains an extra hash
-	h := sha1.New()
-	h.Write(data)
-	commitHash := h.Sum(nil)
+	data, commitHash := encodeObject(COMMIT, content)
 	if err := writeObject(commitHash, data); err != nil {
 		os.Exit(1)
 	}
