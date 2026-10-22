@@ -31,6 +31,8 @@ func main() {
 		writeTree(args)
 	case "commit-tree":
 		commitTree(args)
+	case "clone":
+		clone(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
