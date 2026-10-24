@@ -16,6 +16,8 @@ import (
 const BLOB = "blob"
 const TREE = "tree"
 const COMMIT = "commit"
+const TAG = "tag"
+const REF_DELTA = "ref-delta"
 
 const REGULAR_FILE_MODE = "100644"
 const EXECUTABLE_FILE_MODE = "100755"
@@ -106,4 +108,23 @@ func encodeObject(objectType string, content []byte) ([]byte, []byte) {
 	hashedBytes := h.Sum(nil)
 
 	return data, hashedBytes
+}
+
+// this info is passed through the wire via 1 byte so there's not enough
+// bytes to spell out the actual object type value. it is mapped to an int value
+func getObjectTypeByValue(val int) (string, error) {
+	switch val {
+	case 1:
+		return COMMIT, nil
+	case 2:
+		return TREE, nil
+	case 3:
+		return BLOB, nil
+	case 4:
+		return TAG, nil
+	case 7:
+		return REF_DELTA, nil
+	default:
+		return "", fmt.Errorf("unsupported object type: %s", val)
+	}
 }
