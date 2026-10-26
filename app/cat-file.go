@@ -12,8 +12,9 @@ func catFile(args []string) {
 	fs.Parse(args)
 
 	// checks the number of arguments that are not flags after all flag values have been parsed
-	if fs.NArg() != 1 {
+	if fs.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "usage: mygit cat-file -p <object>\n")
+		os.Exit(1)
 	}
 
 	// flags are required for cat-file command. for now we only support -p
@@ -25,6 +26,7 @@ func catFile(args []string) {
 	hash := fs.Arg(0)
 	object, err := getObject(hash)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting object: %s", err.Error())
 		os.Exit(1)
 	}
 

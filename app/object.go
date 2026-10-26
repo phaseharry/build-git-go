@@ -52,6 +52,9 @@ func getObject(hash string) (Object, error) {
 	defer zlibReader.Close()
 
 	data, err := io.ReadAll(zlibReader)
+	if err != nil {
+		return Object{}, err
+	}
 
 	// ex. blob 11\0hello world
 	// doing to cuts to get both the <objectType>, <size> and <contentBytes>

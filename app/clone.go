@@ -24,15 +24,17 @@ func clone(args []string) {
 
 	lines, err := getGitPackUploadInfo(repoLink)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error while getting the git pack upload info: %s\n", err.Error())
 		os.Exit(1)
 	}
 
-	headSHA, err := getHeadSHA(lines)
+	headCommitSHA, err := getHeadCommitSHA(lines)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error while getting head commit SHA from git pack upload info: %s\n", err.Error())
 		os.Exit(1)
 	}
 
-	body, err := getGitUploadPackResponse(repoLink, headSHA)
+	body, err := getGitUploadPackResponse(repoLink, headCommitSHA)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error while getting the git pack response: %s\n", err.Error())
 		os.Exit(1)
@@ -48,7 +50,29 @@ func clone(args []string) {
 		os.Exit(1)
 	}
 
-	if err := writeFilesToDirectory(targetDirectory, string(headSHA)); err != nil {
+	headCommit, err := getObject(string(headCommitSHA))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error while getting the head commit's object: %s\n", err.Error())
+		os.Exit(1)
+	} else if headCommit.ObjectType != COMMIT {
+		fmt.Fprintf(os.Stderr, "head commit's SHA returned a non-commit object: %s", headCommit.ObjectType)
+		os.Exit(1)
+	}
+
+	// example commit content entry
+	// tree 0c81df695e9bcba51dd4943e4123190002b6a136
+	// parent f56c5754e0a6555fadf3ecb5538225ecab9c4d6d
+	// author …
+	// gets the first line of the head commit's bytes and then get the root tree's SHA
+	// start iterating there
+	headLine, _, _ := bytes.Cut(headCommit.Content, []byte{'\n'})
+	rootTreeSHA, ok := bytes.CutPrefix(headLine, []byte("tree "))
+	if !ok {
+		fmt.Fprint(os.Stderr, "unable to get root tree SHA")
+		os.Exit(1)
+	}
+
+	if err := writeFilesToDirectory(targetDirectory, string(rootTreeSHA)); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing repo to directory: %s\n", err.Error())
 		os.Exit(1)
 	}
@@ -62,11 +86,12 @@ func getGitPackUploadInfo(repoLink string) ([][]byte, error) {
 		fmt.Fprintf(os.Stderr, "error fetching for git-upload-pack info: %s\n", err.Error())
 		return nil, err
 	}
+	defer res.Body.Close()
+
 	if res.StatusCode == http.StatusNotFound {
 		fmt.Fprintf(os.Stderr, "git repo: %s is not found\n", repoLink)
 		return nil, fmt.Errorf("git repo not found")
 	}
-	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -129,7 +154,7 @@ func parsePktLines(data []byte) ([][]byte, error) {
 // f56c5754e0a6555fadf3ecb5538225ecab9c4d6d HEADmulti_ack thin-pack side-band side-band-64k ofs-delta shallow deepen-since deepen-not deepen-relative no-progress include-tag multi_ack_detailed allow-tip-sha1-in-want allow-reachable-sha1-in-want no-done symref=HEAD:refs/heads/main filter object-format=sha1 agent=git/github-f6e509caf74d-Linux
 // f56c5754e0a6555fadf3ecb5538225ecab9c4d6d refs/heads/main
 // f56c5754e0a6555fadf3ecb5538225ecab9c4d6d refs/heads/master
-func getHeadSHA(lines [][]byte) ([]byte, error) {
+func getHeadCommitSHA(lines [][]byte) ([]byte, error) {
 	for _, line := range lines {
 		fmt.Print(string(line))
 	}
@@ -209,7 +234,10 @@ func writeObjectEntriesToGitDirectory(body []byte) error {
 
 	for range objectCount {
 		// reading the object's header byte to get details on its type and its size
-		b, _ := reader.ReadByte()
+		b, err := reader.ReadByte()
+		if err != nil {
+			return err
+		}
 		// gets the header byte (0x97 = 1001 0111) and shifts it 4 bits to the left
 		// 1001 0111 -> 0000 1001 (keeping the leftmost 4 bits)
 		// then runs a bitwise AND with 111 to keep only the lowest 3 bits after we shifted which is used to define the object type. (001) == commit && (111) == ref-delta
@@ -263,15 +291,17 @@ func writeObjectEntriesToGitDirectory(body []byte) error {
 		// OR       = 596165 = 000 0010 010 0011 000 1100 0101 (total size)
 
 		// ref-delta has a 20 byte SHA before the actual zlip compressed content.
-		// so to not panic or error out on an invalid gzip or incorrectly skipping to next object and malform our data,
-		// explicitly skip 20 SHA bytes by moving the reader pointer 20 bytes forward
-		// the actual ref-delta content will still be decompressed, encoded, and written properly
+		// this SHA value points to the base object that it is referencing.
+		// the actual ref-delta content comes after this SHA value and needs to decompressed and encoded the same as other objects.
+
+		// reading in the base SHA for now. TODO: handle ref-delta during the writing repo process
+		var baseSHA []byte
 		if objectType == REF_DELTA {
-			for range 20 {
-				_, err := reader.ReadByte()
-				if err != nil {
-					return fmt.Errorf("error reading ref-delta SHA byte: %s\n", err.Error())
-				}
+			baseSHA = make([]byte, sha1.Size)
+			// creating a 20 byte slice to be filled in. io.ReadFull will read 20 bytes in
+			// from the current reader pointer and increment it automatically as it's read and filled up
+			if _, err := io.ReadFull(reader, baseSHA); err != nil {
+				return fmt.Errorf("error reading ref-delta base SHA: %s", err.Error())
 			}
 		}
 
@@ -285,12 +315,20 @@ func writeObjectEntriesToGitDirectory(body []byte) error {
 		//
 		// this also shifts our reader pointer for us to we can get the next object entry
 		zr, err := zlib.NewReader(reader)
+		if err != nil {
+			return err
+		}
 
 		content, err := io.ReadAll(zr)
+		if err != nil {
+			return err
+		}
 		zr.Close()
 
 		data, hash := encodeObject(objectType, content)
-		err = writeObject(hash, data)
+		if err = writeObject(hash, data); err != nil {
+			return err
+		}
 		fmt.Printf("%x\n", hash)
 	}
 
@@ -317,6 +355,7 @@ func writeFilesToDirectory(currentDirectory string, treeSha string) error {
 
 	for _, ref := range treeReferences {
 		currentPath := filepath.Join(currentDirectory, ref.Name)
+		fmt.Println(currentPath)
 		if ref.ObjectType == TREE {
 			err := writeFilesToDirectory(
 				currentPath,
