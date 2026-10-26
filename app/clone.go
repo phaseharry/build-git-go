@@ -9,16 +9,20 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
+// /path/to/your_program.sh clone https://github.com/blah/blah <some_dir>
 func clone(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: clone <repo-link>")
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: clone <repo-link> <target_directory>")
 		os.Exit(1)
 	}
 
-	lines, err := getGitPackUploadInfo(args[0])
+	repoLink, targetDirectory := args[0], args[1]
+
+	lines, err := getGitPackUploadInfo(repoLink)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -28,19 +32,26 @@ func clone(args []string) {
 		os.Exit(1)
 	}
 
-	body, err := getGitUploadPackResponse(args[0], headSHA)
+	body, err := getGitUploadPackResponse(repoLink, headSHA)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error while getting the git pack response: %s\n", err.Error())
 		os.Exit(1)
 	}
 
-	validResponse := validateResponseChecksum(body)
-	if !validResponse {
+	if validResponse := validateResponseChecksum(body); !validResponse {
 		fmt.Fprint(os.Stderr, "git pack response's checksum did not match the computed one\n")
 		os.Exit(1)
 	}
 
-	err = processObjectEntries(body)
+	if err = writeObjectEntriesToGitDirectory(body); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing objects to .git: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	if err := writeFilesToDirectory(targetDirectory, string(headSHA)); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing repo to directory: %s\n", err.Error())
+		os.Exit(1)
+	}
 }
 
 func getGitPackUploadInfo(repoLink string) ([][]byte, error) {
@@ -173,7 +184,7 @@ func validateResponseChecksum(body []byte) bool {
 	return bytes.Equal(computedSHA[:], receivedSHA)
 }
 
-func processObjectEntries(body []byte) error {
+func writeObjectEntriesToGitDirectory(body []byte) error {
 
 	// 0008NAK\n           bytes 0–7     pkt-line: NAK
 	// PACK                bytes 8–11    pack signature
@@ -281,6 +292,48 @@ func processObjectEntries(body []byte) error {
 		data, hash := encodeObject(objectType, content)
 		err = writeObject(hash, data)
 		fmt.Printf("%x\n", hash)
+	}
+
+	return nil
+}
+
+func writeFilesToDirectory(currentDirectory string, treeSha string) error {
+	object, err := getObject(treeSha)
+	if err != nil {
+		return err
+	} else if object.ObjectType != TREE {
+		return fmt.Errorf("invalid object type for root SHA returned: %s", object.ObjectType)
+	}
+
+	treeReferences, err := getTreeReferences(object)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(currentDirectory, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "error creating object directory: %s, err: %s\n", currentDirectory, err.Error())
+		return err
+	}
+
+	for _, ref := range treeReferences {
+		currentPath := filepath.Join(currentDirectory, ref.Name)
+		if ref.ObjectType == TREE {
+			err := writeFilesToDirectory(
+				currentPath,
+				ref.SHA,
+			)
+			if err != nil {
+				return err
+			}
+		} else if ref.ObjectType == BLOB {
+			blobObject, err := getObject(ref.SHA)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(currentPath, blobObject.Content, 0644); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

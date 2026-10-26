@@ -24,18 +24,22 @@ const EXECUTABLE_FILE_MODE = "100755"
 const SYMBOLIC_LINK_MODE = "120000"
 const DIRECTORY_MODE = "40000"
 
+type Object struct {
+	ObjectType string
+	Size       int
+	Content    []byte
+}
+
 // takes a file path and opens the open to get its raw bytes and then decompress it
-func getObject(hash string) ([]byte, error) {
+func getObject(hash string) (Object, error) {
 	subDirectory, filename := hash[:2], hash[2:]
 	path := filepath.Join(GIT_OBJECTS_DIRECTORY, subDirectory, filename)
 
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(os.Stderr, "file not found")
-		return []byte{}, err
+		return Object{}, fmt.Errorf("file not found: %s", path)
 	} else if err != nil {
-		fmt.Fprint(os.Stderr, "issue with opening object file\n")
-		return []byte{}, err
+		return Object{}, fmt.Errorf("issue with opening object file: $s", path)
 	}
 	defer file.Close()
 
@@ -43,12 +47,43 @@ func getObject(hash string) ([]byte, error) {
 	zlibReader, err := zlib.NewReader(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error decompressing object: %s\n", err)
-		return []byte{}, err
+		return Object{}, err
 	}
 	defer zlibReader.Close()
 
 	data, err := io.ReadAll(zlibReader)
-	return data, err
+
+	// ex. blob 11\0hello world
+	// doing to cuts to get both the <objectType>, <size> and <contentBytes>
+	objectTypeBytes, dataAfterObjectTypeBytes, spaceFound := bytes.Cut(data, []byte{' '})
+	if !spaceFound {
+		return Object{}, fmt.Errorf("invalid object: no space found separating the objectType and rest of the object entry\n")
+	}
+
+	objectType := string(objectTypeBytes)
+	// only support these for now
+	if objectType != BLOB && objectType != TREE && objectType != COMMIT {
+		return Object{}, fmt.Errorf("invalid object type: %s\n", objectType)
+	}
+
+	// after the initial cut, 11\0hello world
+	// do another cut on '\0' null byte to get both the size & the content bytes
+	sizeBytes, contentBytes, nullByteFound := bytes.Cut(dataAfterObjectTypeBytes, []byte{0})
+	if !nullByteFound {
+		return Object{}, fmt.Errorf("invalid object: no null byte after header\n")
+	}
+
+	size, err := strconv.Atoi(string(sizeBytes)) // "563" → 563
+	if err != nil {
+		return Object{}, fmt.Errorf("err converting size bytes into an int: %s\n", err.Error())
+	}
+
+	object := Object{
+		ObjectType: objectType,
+		Size:       size,
+		Content:    contentBytes,
+	}
+	return object, nil
 }
 
 func writeObject(hash []byte, data []byte) error {
