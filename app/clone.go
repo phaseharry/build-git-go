@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // /path/to/your_program.sh clone https://github.com/blah/blah <some_dir>
@@ -33,6 +34,11 @@ func clone(args []string) {
 		fmt.Fprintf(os.Stderr, "error while getting head commit SHA from git pack upload info: %s\n", err.Error())
 		os.Exit(1)
 	}
+	headBranch, err := getHeadBranch(lines)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error while getting head branch from git pack upload info: %s\n", err.Error())
+		os.Exit(1)
+	}
 
 	body, err := getGitUploadPackResponse(repoLink, headCommitSHA)
 	if err != nil {
@@ -42,6 +48,16 @@ func clone(args []string) {
 
 	if validResponse := validateResponseChecksum(body); !validResponse {
 		fmt.Fprint(os.Stderr, "git pack response's checksum did not match the computed one\n")
+		os.Exit(1)
+	}
+
+	if err := syncWorkingDirectoryToTarget(targetDirectory); err != nil {
+		fmt.Fprintf(os.Stderr, "error while changing working directory to target directory %s", err.Error())
+		os.Exit(1)
+	}
+
+	if err := setupGitRepo(headBranch, headCommitSHA); err != nil {
+		fmt.Fprintf(os.Stderr, "error while setting up repo's git: %s", err.Error())
 		os.Exit(1)
 	}
 
@@ -72,7 +88,9 @@ func clone(args []string) {
 		os.Exit(1)
 	}
 
-	if err := writeFilesToDirectory(targetDirectory, string(rootTreeSHA)); err != nil {
+	// working directory has been changed to the targetDirectory so just pass in "."
+	// as the initial directory
+	if err := writeFilesToDirectory(".", string(rootTreeSHA)); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing repo to directory: %s\n", err.Error())
 		os.Exit(1)
 	}
@@ -209,8 +227,81 @@ func validateResponseChecksum(body []byte) bool {
 	return bytes.Equal(computedSHA[:], receivedSHA)
 }
 
-func writeObjectEntriesToGitDirectory(body []byte) error {
+// takes the parsed PktLines and pulls the ref that HEAD points to out of the capabilities.
+// capabilities come after the NUL byte on the HEAD line and are separated by spaces
+// <sha> HEAD\0multi_ack thin-pack ... symref=HEAD:refs/heads/master object-format=sha1 ...\n
+// returns the full ref ex. refs/heads/master
+func getHeadBranch(lines [][]byte) (string, error) {
+	if len(lines) < 2 {
+		return "", fmt.Errorf("invalid git-upload-pack info: not enough lines")
+	}
 
+	_, capabilities, found := bytes.Cut(lines[1], []byte{0})
+	if !found {
+		return "", fmt.Errorf("invalid git-upload-pack info: no capabilities on HEAD line")
+	}
+
+	// split every capability up by <space> and each substring is a converted to a slice of bytes within another slice
+	for _, capability := range bytes.Fields(capabilities) {
+		// once we find the capability entry with the prefix "symref=HEAD:", we know we found what branch is the HEAD for this repository.
+		// will keep it as the HEAD within the local git copy as well
+		if ref, ok := bytes.CutPrefix(capability, []byte("symref=HEAD:")); ok {
+			return string(ref), nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid git-upload-pack info: no symref for HEAD")
+}
+
+func syncWorkingDirectoryToTarget(targetDirectory string) error {
+	if err := os.MkdirAll(targetDirectory, 0755); err != nil {
+		return err
+	}
+	if err := os.Chdir(targetDirectory); err != nil {
+		return err
+	}
+	return nil
+}
+
+// initializes the git directories so the cloned content can be stored there
+func setupGitRepo(headBranchRef string, headCommitSHA []byte) error {
+	for _, dir := range []string{GIT_DIRECTORY, GIT_OBJECTS_DIRECTORY, GIT_REFS_DIRECTORY} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
+			return err
+		}
+	}
+
+	headFileContent := []byte(fmt.Sprintf("ref: %s\n", headBranchRef))
+	if err := os.WriteFile(".git/HEAD", headFileContent, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing file: %s\n", err)
+		return err
+	}
+
+	tokens := strings.Split(headBranchRef, "/")
+	if len(tokens) < 1 {
+		return fmt.Errorf("Head branch ref does not have enough tokens to make up filepath")
+	}
+
+	headReferenceDirectoryPath := filepath.Join(".git", strings.Join(tokens[:len(tokens)-1], "/"))
+	if err := os.MkdirAll(headReferenceDirectoryPath, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
+		return err
+	}
+
+	headReferenceFilePath := filepath.Join(".git", headBranchRef)
+	refContent := []byte{}
+	refContent = append(refContent, headCommitSHA...)
+	refContent = append(refContent, '\n')
+	if err := os.WriteFile(headReferenceFilePath, refContent, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing file: %s\n", err)
+		return err
+	}
+
+	return nil
+}
+
+func writeObjectEntriesToGitDirectory(body []byte) error {
 	// 0008NAK\n           bytes 0–7     pkt-line: NAK
 	// PACK                bytes 8–11    pack signature
 	// \x00\x00\x00\x02    bytes 12–15   version 2

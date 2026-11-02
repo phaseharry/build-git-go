@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -61,7 +62,7 @@ func getTreeReferences(object Object) ([]ObjectReference, error) {
 		objectReferences = append(objectReferences, ObjectReference{
 			Name:       string(name),
 			Mode:       string(mode),
-			SHA:        string(SHA),
+			SHA:        hex.EncodeToString(SHA),
 			ObjectType: objectType,
 			RawBytes:   rawBytes,
 		})
